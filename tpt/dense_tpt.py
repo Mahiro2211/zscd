@@ -40,7 +40,8 @@ def _change_from_feats(model, feats1, feats2, contexts):
 
 
 def tpt_predict_pair(model, im1, im2, n_views=16, tta_steps=1, lr=5e-3,
-                     selection_p=0.1, crop_size=224, crop_scale=(0.3, 1.0)):
+                     selection_p=0.1, crop_size=224, crop_scale=(0.3, 1.0),
+                     chunk=8):
     """im1/im2: [3,H,W] normalized, on model device. Runs the TPT loop and
     returns (losses, tuned contexts snapshot). Final prediction is left to the
     caller (sliding-window, native resolution) with mode='context'."""
@@ -51,8 +52,8 @@ def tpt_predict_pair(model, im1, im2, n_views=16, tta_steps=1, lr=5e-3,
 
     views1, views2 = bi_temporal_views(im1, im2, n_views - 1,
                                        crop_size=crop_size, scale=crop_scale, clean=True)
-    feats1 = _visual_feats(model, views1)
-    feats2 = _visual_feats(model, views2)
+    feats1 = _visual_feats(model, views1, chunk=chunk)
+    feats2 = _visual_feats(model, views2, chunk=chunk)
     n_sel = max(1, int(views1.shape[0] * selection_p))
 
     losses = []

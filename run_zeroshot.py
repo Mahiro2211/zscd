@@ -19,10 +19,17 @@ import os
 import sys
 import time
 
-sys.path.insert(0, '/home/dhm/zero_shot_dg')
+import os as _os, sys as _sys
+_ROOT = _os.environ.get('ZSDG_ROOT', _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+if _ROOT not in _sys.path:
+    _sys.path.insert(0, _ROOT)
 import numpy as np
 import torch
 import torch.nn.functional as F
+
+torch.backends.cudnn.benchmark = True
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 from zscd.models.cd_model import SemanticChangeCLIP
 from zscd.data.cd_dataset import PairedChangeDataset, clip_denormalize
@@ -69,6 +76,8 @@ def main():
     ap.add_argument('--inference', default='slide', choices=['slide', 'resize'])
     ap.add_argument('--mode', default='ensemble', choices=['ensemble', 'context'])
     ap.add_argument('--baseline', default='semantic', choices=['semantic', 'notext'])
+    ap.add_argument('--batch-windows', type=int, default=16,
+                    help='windows per forward in slide mode (24GB: 16 = all windows in one batch)')
     ap.add_argument('--calib-frac', type=float, default=0.05)
     ap.add_argument('--calib-seed', type=int, default=0)
     ap.add_argument('--batch', type=int, default=4, help='pairs per forward (resize mode)')
@@ -102,7 +111,8 @@ def main():
                 tf = time.time()
                 prob = slide_change_prob(model, im1, im2, mode=args.mode,
                                          win=args.input_size, stride=args.stride,
-                                         baseline=args.baseline)
+                                         baseline=args.baseline,
+                                         batch_windows=args.batch_windows)
                 t_fwd_l = time.time() - tf
                 acc.update(prob.cpu(), lab, dom)
                 if save_vis_flag and vis_saved[dom] < args.save_vis:

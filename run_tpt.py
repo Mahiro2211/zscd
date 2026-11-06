@@ -15,8 +15,15 @@ import os
 import sys
 import time
 
-sys.path.insert(0, '/home/dhm/zero_shot_dg')
+import os as _os, sys as _sys
+_ROOT = _os.environ.get('ZSDG_ROOT', _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+if _ROOT not in _sys.path:
+    _sys.path.insert(0, _ROOT)
 import torch
+
+torch.backends.cudnn.benchmark = True
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 from zscd.models.cd_model import SemanticChangeCLIP
 from zscd.data.cd_dataset import PairedChangeDataset
@@ -38,6 +45,8 @@ def main():
     ap.add_argument('--selection-p', type=float, default=0.1)
     ap.add_argument('--crop-size', type=int, default=224)
     ap.add_argument('--crop-scale-min', type=float, default=0.3)
+    ap.add_argument('--chunk', type=int, default=16, help='views per visual forward (24GB: 16-32)')
+    ap.add_argument('--batch-windows', type=int, default=16)
     ap.add_argument('--calib-frac', type=float, default=0.05)
     ap.add_argument('--calib-seed', type=int, default=0)
     ap.add_argument('--sample-per-domain', type=int, default=0,
@@ -71,9 +80,11 @@ def main():
                                          tta_steps=args.tta_steps, lr=args.lr,
                                          selection_p=args.selection_p,
                                          crop_size=args.crop_size,
-                                         crop_scale=(args.crop_scale_min, 1.0))
+                                         crop_scale=(args.crop_scale_min, 1.0),
+                                         chunk=args.chunk)
             prob = slide_change_prob(model, im1, im2, mode='context',
-                                     win=args.win, stride=args.stride)   # tuned prompt
+                                     win=args.win, stride=args.stride,
+                                     batch_windows=args.batch_windows)   # tuned prompt
             acc.update(prob.cpu(), lab, dom)
             loss_log.append(losses)
             if save_vis_flag and vis_saved[dom] < args.save_vis:

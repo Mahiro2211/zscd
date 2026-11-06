@@ -4,8 +4,10 @@ For each weights: load, classify real 224x224 crops from test2 with the 6
 land-cover prompts, verify (a) crops of obvious classes rank correctly,
 (b) logits look sane (no NaN, reasonable spread).
 """
-import sys
-sys.path.insert(0, '/home/dhm/zero_shot_dg')
+import os as _os, sys as _sys
+_ROOT = _os.environ.get('ZSDG_ROOT', _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+if _ROOT not in _sys.path:
+    _sys.path.insert(0, _ROOT)
 import torch
 import torch.nn.functional as F
 import numpy as np
