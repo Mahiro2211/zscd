@@ -32,7 +32,7 @@ def main():
     L.append('**协议(与 Zan et al. 2025 对齐)**:WHU-GCD test set II(test2,3,906 对)逐像素评测;'
              '指标 mF1=(F1₀+F1₁)/2、IoU1(变化类);滑窗原生分辨率预测(224 窗口拼成完整 512×512);'
              '单一全局阈值取自按域分层 5% 校准子集(种子 0,不接触评测像素)后冻结。'
-             '**calibrated 列为与论文同口径的数字**;fixed@0.5 与 oracle\*(用评测标签扫阈值,仅分析)为辅助。\n')
+             '**calibrated 列为与论文同口径的数字**;fixed@0.5 与 oracle*(用评测标签扫阈值,仅分析)为辅助。\n')
     L.append('全部实验零训练:冻结 CLIP ViT-L/14。TPT 仅逐样本调 8 个 prompt 上下文向量后重置。\n')
 
     L.append('\n## 1. 总体对比(calibrated 口径,eval 95% 子集)\n')
