@@ -1,0 +1,54 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Model weights / checkpoints (3G+ CLIP ViT-L weights live in checkpoints/) ---
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+
+# --- Experiment outputs (per-run JSONs, visualizations, reports) ---
+results/
+runs/
+outputs/
+wandb/
+
+# --- Datasets (hosted externally, e.g. ~/Dataset; only loader code is tracked) ---
+*.tif
+*.tiff
+*.npz
+*.h5
+
+# --- Caches ---
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- IDE / editor ---
+.idea/
+.vscode/
+*.swp
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Copyrighted material: full extracted paper text (keep notes_paper.md only) ---
+paper_fulltext.txt
