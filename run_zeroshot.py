@@ -19,10 +19,6 @@ import os
 import sys
 import time
 
-import os, sys
-_ROOT = os.environ.get('ZSDG_ROOT', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
 import numpy as np
 import torch
 import torch.nn.functional as F

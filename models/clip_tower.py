@@ -14,11 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import os, sys
-_ROOT = os.environ.get('ZSDG_ROOT', os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
-from denseclip.models.clip_models import Transformer, LayerNorm  # noqa: E402
+from zscd.vendor.clip_blocks import Transformer, LayerNorm
 
 
 class DenseViT(nn.Module):

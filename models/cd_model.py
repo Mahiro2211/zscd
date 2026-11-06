@@ -10,16 +10,12 @@ Two text modes:
   - context  (TPT):       [SOT] + learnable ctx + class + [EOT], ctx initialized
                           from a hand-crafted template (TPT's ctx_init)
 """
-import os, sys
-_ROOT = os.environ.get('ZSDG_ROOT', os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from denseclip.models.clip_models import Transformer, LayerNorm      # noqa: E402
-from denseclip.tokenizer import tokenize                              # noqa: E402
+from zscd.vendor.clip_blocks import Transformer, LayerNorm
+from zscd.vendor.tokenizer import tokenize, _tokenizer
 
 from .weights import load_checkpoint, split_towers
 from .clip_tower import DenseViT
@@ -121,7 +117,7 @@ class SemanticChangeCLIP(nn.Module):
 
     # ---------------------------------------------------------------- prompts
     def _tokenize_classes(self, names):
-        toks = [1 + len(sys.modules['denseclip.tokenizer']._tokenizer.encode(n)) + 1 for n in names]
+        toks = [1 + len(_tokenizer.encode(n)) + 1 for n in names]
         n1 = max(toks)
         return tokenize(names, context_length=n1), n1
 
@@ -136,7 +132,7 @@ class SemanticChangeCLIP(nn.Module):
         feats = []
         for t in TEMPLATES:
             sents = [t.format(c) for c in self.class_names]
-            n = max(1 + len(sys.modules['denseclip.tokenizer']._tokenizer.encode(s)) + 1 for s in sents)
+            n = max(1 + len(_tokenizer.encode(s)) + 1 for s in sents)
             ids = tokenize(sents, context_length=n)
             f = self.text.forward_sentences(ids)
             feats.append(F.normalize(f.float(), dim=-1))

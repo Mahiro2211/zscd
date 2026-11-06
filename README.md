@@ -5,6 +5,9 @@
 
 ## 结构
 ```
+vendor/                自包含 CLIP 构件(OpenAI 原版 Transformer/tokenizer,逐字搬运,
+                       与 denseclip 数值一致)— 无需外部 denseclip 目录
+paths.py               可移植路径(RESULTS/CKPT/DATA,支持 ZSCD_CKPT_DIR/ZSCD_DATA_ROOT 覆盖)
 data/cd_dataset.py    PairedChangeDataset(im1/im2/label,按前缀分域,CLIP 归一化)
 data/viewgen.py       双时相同参数随机裁剪视图(TPT 用)
 models/weights.py     三权重统一加载:OpenAI JIT / open_clip(RemoteCLIP, GeoRSCLIP)

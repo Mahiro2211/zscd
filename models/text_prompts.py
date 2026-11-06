@@ -3,12 +3,8 @@
 Class system follows Zan et al. 2025 (WHU-GCD): 6 land-cover categories
 (building / road / water / barren / forest / agriculture), see notes_paper.md.
 """
-import os, sys
-_ROOT = os.environ.get('ZSDG_ROOT', os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
 import torch
-from denseclip.tokenizer import tokenize  # noqa: E402
+from zscd.vendor.tokenizer import tokenize, _tokenizer
 
 # WHU-GCD 6 land-cover classes (paper Table 1); farmland == "agriculture"
 LAND_COVER_CLASSES = ['building', 'road', 'water', 'bare land', 'forest', 'farmland']
@@ -31,7 +27,7 @@ TPT_INIT_TEMPLATE = 'a satellite image of a'
 def build_class_tokens(class_names, extra_context_len=0):
     """Tokenize each class name (SOT ... EOT, zero-padded) to a fixed length N1.
     Returns LongTensor [K, N1] and N1."""
-    lengths = [1 + len(sys.modules['denseclip.tokenizer']._tokenizer.encode(c)) + 1 for c in class_names]
+    lengths = [1 + len(_tokenizer.encode(c)) + 1 for c in class_names]
     n1 = max(lengths)
     return tokenize(class_names, context_length=n1), n1
 
