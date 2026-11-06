@@ -19,10 +19,10 @@ import os
 import sys
 import time
 
-import os as _os, sys as _sys
-_ROOT = _os.environ.get('ZSDG_ROOT', _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-if _ROOT not in _sys.path:
-    _sys.path.insert(0, _ROOT)
+import os, sys
+_ROOT = os.environ.get('ZSDG_ROOT', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -32,6 +32,7 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 from zscd.models.cd_model import SemanticChangeCLIP
+from zscd.paths import RESULTS_DIR, DATA_ROOT
 from zscd.data.cd_dataset import PairedChangeDataset, clip_denormalize
 from zscd.inference import slide_change_prob
 from zscd.eval.metrics import HistAccumulator, format_table
@@ -70,7 +71,7 @@ def split_calib_eval(ds, calib_frac, seed):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--weights', required=True, choices=['openai', 'remoteclip', 'georsclip'])
-    ap.add_argument('--data-root', default='/home/dhm/Dataset/test2')
+    ap.add_argument('--data-root', default=DATA_ROOT)
     ap.add_argument('--input-size', type=int, default=224, help='CLIP window size')
     ap.add_argument('--stride', type=int, default=112)
     ap.add_argument('--inference', default='slide', choices=['slide', 'resize'])
@@ -99,7 +100,7 @@ def main():
     acc_calib = HistAccumulator(domains)
     acc_eval = HistAccumulator(domains)
     vis_saved = {d: 0 for d in domains}
-    vis_dir = f'/home/dhm/zero_shot_dg/zscd/results/vis_{args.weights}_{args.baseline}'
+    vis_dir = os.path.join(RESULTS_DIR, f'vis_{args.weights}_{args.baseline}')
     os.makedirs(vis_dir, exist_ok=True)
 
     def process(items, acc, save_vis_flag):
@@ -168,8 +169,7 @@ def main():
     report['overall'] = acc_eval.report_with_calib(merged_calib, domain='overall')
 
     print('\n' + format_table(report))
-    out = args.out or (f'/home/dhm/zero_shot_dg/zscd/results/zs_{args.weights}_{args.baseline}_'
-                       f'{args.inference}.json')
+    out = args.out or os.path.join(RESULTS_DIR, f'zs_{args.weights}_{args.baseline}_{args.inference}.json')
     with open(out, 'w') as f:
         json.dump(dict(weights=args.weights, baseline=args.baseline, mode=args.mode,
                        inference=args.inference, win=args.input_size, stride=args.stride,

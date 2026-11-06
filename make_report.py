@@ -8,7 +8,7 @@ auxiliary (oracle uses eval labels — analysis only).
 import glob
 import json
 
-RES = '/home/dhm/zero_shot_dg/zscd/results'
+from zscd.paths import RESULTS_DIR as RES
 WNAMES = {'openai': 'OpenAI CLIP', 'remoteclip': 'RemoteCLIP', 'georsclip': 'GeoRSCLIP'}
 DOMS = ['levir', 'second', 'cnam', 'dsifn', 'clcd', 'overall']
 

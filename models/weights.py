@@ -15,15 +15,19 @@ All formats share the same layout for the towers themselves:
 open_clip newer versions may name the patch embed `visual.patch_embed.proj.*`;
 we rename it back to `visual.conv1.*`.
 """
+import os
+
 import torch
+
+from ..paths import CKPT_DIR, OPENAI_CLIP_CACHE
 
 # name -> (path, format, arch)
 WEIGHT_SPECS = {
-    'openai': dict(path='/home/dhm/.cache/clip/ViT-L-14.pt', fmt='openai', arch='ViT-L-14'),
-    'openai-b16': dict(path='/home/dhm/.cache/clip/ViT-B-16.pt', fmt='openai', arch='ViT-B-16'),
-    'remoteclip': dict(path='/home/dhm/zero_shot_dg/zscd/checkpoints/RemoteCLIP-ViT-L-14.pt',
+    'openai': dict(path=os.path.join(OPENAI_CLIP_CACHE, 'ViT-L-14.pt'), fmt='openai', arch='ViT-L-14'),
+    'openai-b16': dict(path=os.path.join(OPENAI_CLIP_CACHE, 'ViT-B-16.pt'), fmt='openai', arch='ViT-B-16'),
+    'remoteclip': dict(path=os.path.join(CKPT_DIR, 'RemoteCLIP-ViT-L-14.pt'),
                        fmt='openclip', arch='ViT-L-14'),
-    'georsclip': dict(path='/home/dhm/zero_shot_dg/zscd/checkpoints/GeoRSCLIP-ViT-L-14-336.pt',
+    'georsclip': dict(path=os.path.join(CKPT_DIR, 'GeoRSCLIP-ViT-L-14-336.pt'),
                       fmt='openclip', arch='ViT-L-14-336'),
 }
 

@@ -10,10 +10,10 @@ Two text modes:
   - context  (TPT):       [SOT] + learnable ctx + class + [EOT], ctx initialized
                           from a hand-crafted template (TPT's ctx_init)
 """
-import os as _os, sys as _sys
-_ROOT = _os.environ.get('ZSDG_ROOT', _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-if _ROOT not in _sys.path:
-    _sys.path.insert(0, _ROOT)
+import os, sys
+_ROOT = os.environ.get('ZSDG_ROOT', os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

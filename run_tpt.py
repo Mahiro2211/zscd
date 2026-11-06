@@ -15,10 +15,10 @@ import os
 import sys
 import time
 
-import os as _os, sys as _sys
-_ROOT = _os.environ.get('ZSDG_ROOT', _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-if _ROOT not in _sys.path:
-    _sys.path.insert(0, _ROOT)
+import os, sys
+_ROOT = os.environ.get('ZSDG_ROOT', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 import torch
 
 torch.backends.cudnn.benchmark = True
@@ -26,6 +26,7 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 from zscd.models.cd_model import SemanticChangeCLIP
+from zscd.paths import RESULTS_DIR, DATA_ROOT
 from zscd.data.cd_dataset import PairedChangeDataset
 from zscd.tpt.dense_tpt import tpt_predict_pair
 from zscd.inference import slide_change_prob
@@ -36,7 +37,7 @@ from zscd.eval.metrics import HistAccumulator, format_table
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--weights', required=True, choices=['openai', 'remoteclip', 'georsclip'])
-    ap.add_argument('--data-root', default='/home/dhm/Dataset/test2')
+    ap.add_argument('--data-root', default=DATA_ROOT)
     ap.add_argument('--win', type=int, default=224)
     ap.add_argument('--stride', type=int, default=112)
     ap.add_argument('--n-views', type=int, default=32)
@@ -51,6 +52,8 @@ def main():
     ap.add_argument('--calib-seed', type=int, default=0)
     ap.add_argument('--sample-per-domain', type=int, default=0,
                     help='if >0: stratified subset (seed 0) of this many pairs per domain first')
+    ap.add_argument('--limit-per-domain', type=int, default=0,
+                    help='keep only the first N pairs per domain (smoke testing)')
     ap.add_argument('--domains', default='levir,second,cnam,dsifn,clcd')
     ap.add_argument('--save-vis', type=int, default=3)
     ap.add_argument('--out', default='')
@@ -59,6 +62,13 @@ def main():
     device = 'cuda'
     domains = args.domains.split(',')
     ds = PairedChangeDataset(args.data_root, domains, args.sample_per_domain)
+    if args.limit_per_domain > 0:
+        by_dom = {}
+        for it in ds.items:
+            by_dom.setdefault(it[0], []).append(it)
+        ds.items = [it for d in domains for it in by_dom.get(d, [])[:args.limit_per_domain]]
+        if hasattr(ds, '_index'):
+            del ds._index
     calib_items, eval_items = split_calib_eval(ds, args.calib_frac, args.calib_seed)
     print(f'pairs: {len(ds)} = calib {len(calib_items)} + eval {len(eval_items)}; '
           f'TPT views={args.n_views}, steps={args.tta_steps}')
@@ -67,7 +77,7 @@ def main():
     acc_calib = HistAccumulator(domains)
     acc_eval = HistAccumulator(domains)
     vis_saved = {d: 0 for d in domains}
-    vis_dir = f'/home/dhm/zero_shot_dg/zscd/results/vis_{args.weights}_tpt'
+    vis_dir = os.path.join(RESULTS_DIR, f'vis_{args.weights}_tpt')
     os.makedirs(vis_dir, exist_ok=True)
 
     def process(items, acc, save_vis_flag):
@@ -111,8 +121,7 @@ def main():
     print('\n' + format_table(report))
     import numpy as np
     ll = np.array(loss_log)
-    out = args.out or (f'/home/dhm/zero_shot_dg/zscd/results/tpt_{args.weights}_v{args.n_views}'
-                       f'_s{args.tta_steps}_slide.json')
+    out = args.out or os.path.join(RESULTS_DIR, f'tpt_{args.weights}_v{args.n_views}_s{args.tta_steps}_slide.json')
     with open(out, 'w') as f:
         json.dump(dict(weights=args.weights, n_views=args.n_views, tta_steps=args.tta_steps,
                        lr=args.lr, selection_p=args.selection_p, win=args.win, stride=args.stride,

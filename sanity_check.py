@@ -4,10 +4,10 @@ For each weights: load, classify real 224x224 crops from test2 with the 6
 land-cover prompts, verify (a) crops of obvious classes rank correctly,
 (b) logits look sane (no NaN, reasonable spread).
 """
-import os as _os, sys as _sys
-_ROOT = _os.environ.get('ZSDG_ROOT', _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-if _ROOT not in _sys.path:
-    _sys.path.insert(0, _ROOT)
+import os, sys
+_ROOT = os.environ.get('ZSDG_ROOT', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -16,7 +16,7 @@ from PIL import Image
 from zscd.models.cd_model import SemanticChangeCLIP
 from zscd.data.cd_dataset import clip_normalize
 
-ROOT = '/home/dhm/Dataset/test2'
+from zscd.paths import DATA_ROOT as ROOT
 # hand-picked obvious crops: (file, i, j) top-left of a 224x224 crop + expected class
 PROBES = [
     ('levir_10_2', 'building'),      # LEVIR: building change area
