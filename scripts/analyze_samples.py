@@ -3,13 +3,13 @@
 
 run_zeroshot.py compresses every tile into a 2x256 pixel histogram — fine for
 paper-comparable aggregate mF1/IoU1, but blind to WHICH tiles work. This
-script reruns the SAME protocol (per-domain stratified 5% calibration split,
-single frozen global threshold, sliding-window native-resolution inference)
-while keeping per-tile metrics, then answers:
+script reruns the SAME protocol (fixed global threshold 0.5, sliding-window
+native-resolution inference, no labels touched) while keeping per-tile
+metrics, then answers:
 
   - which tiles are predicted well / badly, and in what proportion
   - where failures concentrate (domain, change-region size, over/under-pred)
-  - per-tile threshold-free AUC vs thresholded IoU1 (ranking vs calibration)
+  - per-tile threshold-free AUC vs thresholded IoU1 (ranking vs decision)
 
 Bucketing (defaults, CLI-overridable):
   change tiles   : good  IoU1 >= 0.5 / mid 0.2-0.5 / bad < 0.2
@@ -43,7 +43,7 @@ from zscd.data.cd_dataset import PairedChangeDataset
 from zscd.models.cd_model import SemanticChangeCLIP
 from zscd.inference import slide_change_prob
 from zscd.eval.metrics import HistAccumulator
-from zscd.run_zeroshot import split_calib_eval, save_vis
+from zscd.run_zeroshot import save_vis
 
 
 def subsample_by_domain(items, frac, seed):
@@ -113,7 +113,7 @@ def tile_prob(model, ds, dom, name, args):
     """Sliding-window change probability for one pair (CPU tensors out)."""
     im1, im2, lab, _, _ = ds[ds.item_index(dom, name)]
     im1, im2 = im1.to('cuda'), im2.to('cuda')
-    prob = slide_change_prob(model, im1, im2, mode=args.mode, win=args.win,
+    prob = slide_change_prob(model, im1, im2, win=args.win,
                              stride=args.stride, baseline=args.baseline,
                              batch_windows=args.batch_windows)
     return im1.cpu(), im2.cpu(), lab, prob.cpu()
@@ -122,17 +122,15 @@ def tile_prob(model, ds, dom, name, args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--weights', required=True, choices=['openai', 'remoteclip', 'georsclip'])
-    ap.add_argument('--baseline', default='semantic', choices=['semantic', 'notext'])
+    ap.add_argument('--baseline', default='semantic',
+                    choices=['semantic', 'notext', 'absdiff_raw', 'absdiff_norm'])
     ap.add_argument('--data-root', default=DATA_ROOT)
     ap.add_argument('--input-size', type=int, default=224)
     ap.add_argument('--stride', type=int, default=112)
-    ap.add_argument('--mode', default='ensemble', choices=['ensemble', 'context'])
     ap.add_argument('--batch-windows', type=int, default=16)
     ap.add_argument('--sample-frac', type=float, default=0.2,
                     help='per-domain eval subsample fraction (1.0 = full test2)')
     ap.add_argument('--sample-seed', type=int, default=0)
-    ap.add_argument('--calib-frac', type=float, default=0.05)
-    ap.add_argument('--calib-seed', type=int, default=0)
     ap.add_argument('--iou-good', type=float, default=0.5)
     ap.add_argument('--iou-mid', type=float, default=0.2)
     ap.add_argument('--fp-clean', type=float, default=0.05)
@@ -152,40 +150,28 @@ def main():
 
     ds = PairedChangeDataset(args.data_root, domains, args.limit_per_domain)
     items = subsample_by_domain(ds.items, args.sample_frac, args.sample_seed)
-    ds.items = items                      # both splits see only the subsample
-    calib_items, eval_items = split_calib_eval(ds, args.calib_frac, args.calib_seed)
-    print(f'{tag}: {len(items)} sampled pairs = calib {len(calib_items)} + '
-          f'eval {len(eval_items)} (sample_frac={args.sample_frac}, seed={args.sample_seed})')
+    ds.items = items
+    print(f'{tag}: {len(items)} sampled pairs '
+          f'(sample_frac={args.sample_frac}, seed={args.sample_seed})')
 
     model = SemanticChangeCLIP(args.weights).to('cuda').eval()
 
-    # ---- pass 1: calibration split -> frozen global threshold -------------
-    acc_calib = HistAccumulator(domains)
-    t0 = time.time()
-    for k, (dom, name) in enumerate(calib_items):
-        _, _, lab, prob = tile_prob(model, ds, dom, name, args)
-        acc_calib.update(prob, lab, dom)
-        if k % 25 == 0:
-            print(f'  calib [{k + 1}/{len(calib_items)}] {time.time() - t0:.0f}s', flush=True)
-    t_bin = acc_calib.select_threshold('overall')
-    thr = t_bin / 255.0
-    print(f'calibrated global threshold = {thr:.3f} (bin {t_bin})')
-
-    # ---- pass 2: eval split -> per-tile records ---------------------------
-    acc_eval = HistAccumulator(domains)
+    # ---- single pass: per-tile records at the fixed 0.5 threshold ---------
+    thr = 0.5
+    acc = HistAccumulator(domains)
     records, t0 = [], time.time()
-    for k, (dom, name) in enumerate(eval_items):
+    for k, (dom, name) in enumerate(items):
         _, _, lab, prob = tile_prob(model, ds, dom, name, args)
-        acc_eval.update(prob, lab, dom)
+        acc.update(prob, lab, dom)
         m = tile_metrics(prob.numpy(), lab.numpy(), thr)
         m.update(domain=dom, name=name, bucket=bucket_of(m, args))
         records.append(m)
         if k % 50 == 0:
-            print(f'  eval  [{k + 1}/{len(eval_items)}] {time.time() - t0:.0f}s', flush=True)
+            print(f'  eval  [{k + 1}/{len(items)}] {time.time() - t0:.0f}s', flush=True)
     eval_seconds = time.time() - t0
 
-    # pixel-level aggregate at the same frozen threshold (sanity vs main run)
-    aggregate = acc_eval.report_with_calib(acc_calib, 'overall')['calibrated']
+    # pixel-level aggregate at the same fixed threshold (sanity vs main run)
+    aggregate = acc.report()['overall']['fixed']
 
     # ---- rankings + pass 3: visualize only the selected tiles -------------
     change = [r for r in records if r['gt_pos'] > 0]
@@ -215,13 +201,12 @@ def main():
         print(f'{d:<9}{row[0]:>6}/{c:<2}{row[1]:>6}/{c:<2}{row[2]:>6}/{c:<2} |'
               f'{row[3]:>6}/{nc:<2}{row[4]:>6}/{nc:<2}{row[5]:>6}/{nc:<2}')
 
-    out = dict(weights=args.weights, baseline=args.baseline, mode=args.mode,
+    out = dict(weights=args.weights, baseline=args.baseline,
                win=args.win, stride=args.stride,
                sample_frac=args.sample_frac, sample_seed=args.sample_seed,
-               calib_frac=args.calib_frac, calib_seed=args.calib_seed,
                threshold=thr, bucket_def=dict(iou_good=args.iou_good, iou_mid=args.iou_mid,
                                               fp_clean=args.fp_clean, fp_mild=args.fp_mild),
-               n_sampled=len(items), n_calib=len(calib_items), n_eval=len(eval_items),
+               n_pairs=len(items),
                eval_seconds=eval_seconds,
                aggregate=dict(mF1=aggregate['mF1'], IoU1=aggregate['IoU1'],
                               F1_change=aggregate['F1_change']),

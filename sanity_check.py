@@ -11,6 +11,7 @@ from PIL import Image
 
 from zscd.models.cd_model import SemanticChangeCLIP
 from zscd.data.cd_dataset import clip_normalize
+from zscd.vendor.tokenizer import tokenize
 
 from zscd.paths import DATA_ROOT as ROOT
 # hand-picked obvious crops: (file, i, j) top-left of a 224x224 crop + expected class
@@ -31,10 +32,9 @@ def crop(name, i, j, which='im1'):
 def check(wname):
     print(f'\n================ {wname} ================')
     model = SemanticChangeCLIP(wname).cuda().eval()
-    tok_ids = model._tokenize_classes(TEXTS)[0].cuda()
     with torch.no_grad():
-        ctx = model._context_from_template('a satellite image of a').cuda()
-        tf = F.normalize(model.text.forward_with_context(tok_ids, ctx).float(), dim=-1)
+        ids = tokenize(['a satellite image of a ' + t for t in TEXTS]).cuda()
+        tf = F.normalize(model.text.forward_sentences(ids).float(), dim=-1)
         for name, expect in PROBES:
             x = crop(name, 64, 64).cuda()
             with torch.autocast('cuda', dtype=torch.float16):

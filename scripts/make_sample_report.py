@@ -72,8 +72,9 @@ def load_configs():
 
 def cfg_title(d):
     frac = '全量' if d['sample_frac'] >= 1.0 else f'抽样{d["sample_frac"]:.0%}'
+    n = d.get('n_pairs', d.get('n_eval'))
     return (f'{WEIGHTS_CN[d["weights"]]} · {BASE_CN[d["baseline"]]}'
-            f'(thr={d["threshold"]:.3f}, {frac}, n_eval={d["n_eval"]})')
+            f'(thr={d["threshold"]:.3f}, {frac}, n={n})')
 
 
 def config_section(d, embed):
@@ -215,8 +216,8 @@ def observations(configs):
                      f'({s["worst_dom_bad"]:.0%});整体预测正例率/GT 正例率 = {s["pr"] / s["gt"]:.2f}({bias});'
                      f'无变化样本严重误报 {s["sev"]:.1%}')
     gap = max(stats, key=lambda s: s['auc'] - s['iou'])
-    lines.append(f'- 排序 vs 校准:AUC−IoU1 差距最大的是 **{gap["tag"]}**({gap["auc"]:.3f} − {gap["iou"]:.3f} '
-                 f'= {gap["auc"] - gap["iou"]:+.3f})——像素排序能力明显高于阈值化后的产出,校准/阈值是主要损失来源')
+    lines.append(f'- 排序 vs 阈值化:AUC−IoU1 差距最大的是 **{gap["tag"]}**({gap["auc"]:.3f} − {gap["iou"]:.3f} '
+                 f'= {gap["auc"] - gap["iou"]:+.3f})——像素排序能力明显高于阈值化后的产出,固定阈值是主要损失来源')
     d0 = best['d']
     ch = [r for r in d0['records'] if r['gt_pos'] > 0]
     small = [r['iou1'] for r in ch if r['gt_pos'] < 0.01]
@@ -253,11 +254,11 @@ def main():
                     + '(逐配置见各节标题;比例不同的配置样本集合不同,不可直接对比)')
 
     lines = ['# 样本级预测质量分析(好/坏样本占比)', '',
-             f'**协议**:与 report.md 主实验同源的推理协议(滑窗原生分辨率、冻结 CLIP、单一全局校准阈值,'
-             f'阈值取自按域分层 5% 校准子集后冻结);评测集 = {frac_txt},种子固定。'
-             f'**分桶**:有变化样本按校准阈值下 IoU1:好 ≥0.5 / 中 0.2–0.5 / 差 <0.2;'
+             f'**协议**:与 report.md 主实验同源的推理协议(滑窗原生分辨率、冻结 CLIP、单一固定全局阈值 0.5,'
+             f'评测全程不使用任何标签);评测集 = {frac_txt},种子固定。'
+             f'**分桶**:有变化样本按固定阈值 0.5 下 IoU1:好 ≥0.5 / 中 0.2–0.5 / 差 <0.2;'
              f'无变化样本(GT 全背景)按预测正例率:干净 ≤5% / 轻微 5–20% / 严重 >20%。'
-             f'**AUC** 为逐样本阈值无关的像素排序能力,与 IoU1 的差距反映「排序尚可但校准吃亏」。'
+             f'**AUC** 为逐样本阈值无关的像素排序能力,与 IoU1 的差距反映「排序尚可但固定阈值吃亏」。'
              f'抽样子集的绝对数值与全量主实验存在抽样误差,分域方向性结论可用。'
              f'TPT 变体逐样本代价高,未纳入本分析。', '',
              f'生成时间:{time.strftime("%Y-%m-%d %H:%M")}', '']

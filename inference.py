@@ -10,6 +10,8 @@ native-resolution CLIP forwards.
 import torch
 import torch.nn.functional as F
 
+from zscd.models.cd_model import change_score
+
 
 def window_positions(size, win, stride):
     """Start offsets covering [0, size) with windows of `win`, stepping by
@@ -23,7 +25,7 @@ def window_positions(size, win, stride):
 
 
 @torch.no_grad()
-def slide_change_prob(model, im1, im2, mode='ensemble', win=224, stride=112,
+def slide_change_prob(model, im1, im2, win=224, stride=112,
                       baseline='semantic', batch_windows=8):
     """im1/im2: [3,H,W] normalized tensors (any H,W). Returns full-resolution
     change probability map [H,W] (or score map for the no-text baseline)."""
@@ -45,12 +47,7 @@ def slide_change_prob(model, im1, im2, mode='ensemble', win=224, stride=112,
         c1 = torch.stack(crops1[s:s + batch_windows])
         c2 = torch.stack(crops2[s:s + batch_windows])
         with torch.autocast('cuda', dtype=torch.float16):
-            if baseline == 'semantic':
-                out = model(c1, c2, mode=mode)
-                prob = out['change'].float()                    # [B, h, w]
-            else:
-                sim = model.no_text_baseline(c1, c2, model)
-                prob = ((1.0 - sim) / 2.0).clamp(0, 1).float()
+            prob = change_score(model, c1, c2, baseline=baseline).float()  # [B,h,w]
         prob = F.interpolate(prob.unsqueeze(1), size=(win, win), mode='bilinear',
                              align_corners=False).squeeze(1)     # window-res
         for b, (i, j) in enumerate(coords[s:s + batch_windows]):

@@ -4,6 +4,11 @@ mF1 = (F1_nochange + F1_change) / 2 ; IoU1 = IoU of the change class;
 plus OA / precision / recall. Probabilities are quantized to 256 bins so a
 per-domain 2x256 histogram supports metrics at ANY threshold, including the
 oracle best-F1 threshold, without keeping pixel-level data.
+
+Protocol: headline metrics use the FIXED global threshold 0.5 (same operating
+convention as the supervised baselines' built-in 0.5/argmax decision — no
+labels are touched anywhere). The oracle sweep ("best") is reported as an
+analysis-only upper bound, NOT a paper-comparable number.
 """
 import numpy as np
 
@@ -30,35 +35,6 @@ class HistAccumulator:
         self.total[domain] += np.bincount(l.ravel(), minlength=2)
 
     # ------------------------------------------------------------------
-    def select_threshold(self, domain='overall', criterion='F1_change'):
-        """Pick the bin index maximizing `criterion` on this accumulator's
-        histogram. Used on the CALIBRATION split only — never on eval."""
-        h = self.hist[domain] if domain in self.hist else sum(self.hist.values())
-        best_t, best_v = 0, -1.0
-        for t in range(N_BINS):
-            m = self._metrics_from_hist(h, t)
-            if m[criterion] > best_v:
-                best_v, best_t = m[criterion], t
-        return best_t
-
-    def report_with_calib(self, calib, domain='overall'):
-        """Eval-side report at three declared protocols:
-        fixed (0.5) / calibrated (threshold from `calib` accumulator) / oracle
-        (best threshold on eval — analysis only, NOT paper-comparable)."""
-        t_calib = calib.select_threshold(domain) if domain in calib.hist \
-            else calib.select_threshold('overall')
-        r = self.domain_report(domain) if domain in self.hist else None
-        if r is None:                                   # merged accumulator
-            merged = HistAccumulator([domain])
-            merged.hist[domain] = sum(self.hist.values())
-            r = merged.domain_report(domain)
-        out = dict(fixed=r['fixed'], best=r['best'])
-        out['calibrated'] = self._metrics_from_hist(
-            self.hist.get(domain) if domain in self.hist else sum(self.hist.values()),
-            t_calib)
-        out['calibrated']['threshold'] = t_calib / (N_BINS - 1)
-        return out
-
     @staticmethod
     def _metrics_from_hist(h, t):
         """t: threshold bin index; predict change iff bin >= t.
@@ -104,25 +80,15 @@ class HistAccumulator:
         return out
 
 
-def format_table(report, calibrated=True):
-    """report: {domain: {fixed, calibrated, best}} (calibrated may be None)."""
+def format_table(report):
+    """report: {domain: {n_pairs_pixels, fixed, best}} — fixed@0.5 (headline)
+    plus the oracle sweep (analysis only)."""
     rows = []
-    if calibrated:
-        hdr = (f"{'domain':<9}|{'mF1@.5':>8} {'IoU1@.5':>8}|{'mF1c':>7} {'IoU1c':>7} {'F1c':>6} {'thr':>5}"
-               f"|{'mF1*':>7} {'IoU1*':>7} {'F1*':>6}")
-        rows.append(hdr)
-        for d, r in report.items():
-            f, c, b = r['fixed'], r.get('calibrated') or {}, r['best']
-            rows.append(f"{d:<9}|{f['mF1']:>8.4f} {f['IoU1']:>8.4f}"
-                        f"|{c.get('mF1', float('nan')):>7.4f} {c.get('IoU1', float('nan')):>7.4f} "
-                        f"{c.get('F1_change', float('nan')):>6.4f} {c.get('threshold', float('nan')):>5.3f}"
-                        f"|{b['mF1']:>7.4f} {b['IoU1']:>7.4f} {b['F1_change']:>6.4f}")
-    else:
-        hdr = (f"{'domain':<9} {'mF1':>7} {'IoU1':>7} {'F1_ch':>7} {'OA':>7} "
-               f"{'mF1*':>7} {'IoU1*':>7} {'F1_ch*':>7} {'thr*':>6}")
-        rows.append(hdr)
-        for d, r in report.items():
-            f, b = r['fixed'], r['best']
-            rows.append(f"{d:<9} {f['mF1']:>7.4f} {f['IoU1']:>7.4f} {f['F1_change']:>7.4f} {f['OA']:>7.4f} "
-                        f"{b['mF1']:>7.4f} {b['IoU1']:>7.4f} {b['F1_change']:>7.4f} {b['threshold']:>6.3f}")
+    hdr = (f"{'domain':<9} {'mF1':>7} {'IoU1':>7} {'F1_ch':>7} {'OA':>7} "
+           f"{'mF1*':>7} {'IoU1*':>7} {'F1_ch*':>7} {'thr*':>6}")
+    rows.append(hdr)
+    for d, r in report.items():
+        f, b = r['fixed'], r['best']
+        rows.append(f"{d:<9} {f['mF1']:>7.4f} {f['IoU1']:>7.4f} {f['F1_change']:>7.4f} {f['OA']:>7.4f} "
+                    f"{b['mF1']:>7.4f} {b['IoU1']:>7.4f} {b['F1_change']:>7.4f} {b['threshold']:>6.3f}")
     return '\n'.join(rows)

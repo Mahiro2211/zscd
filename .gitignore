@@ -50,5 +50,21 @@ wandb/
 .DS_Store
 Thumbs.db
 
-# --- Copyrighted material: full extracted paper text (keep notes_paper.md only) ---
+# --- Copyrighted material: full extracted paper text ---
 paper_fulltext.txt
+
+# --- Personal research notes (not for upload) ---
+motivation.md
+notes_paper.md
+
+# --- Paper assets: figures/tables/preview derived from run results (regenerable) ---
+paper_assets/
+
+# --- Cloud-run result copies (snapshots of results/ from other machines) ---
+result/
+
+# --- ZCode workspace config ---
+.zcode/
+
+# --- WSL/Windows download metadata ---
+*:Zone.Identifier

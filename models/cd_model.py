@@ -5,10 +5,7 @@ Change probability per pixel:  change = 1 - sum_c P1(c) * P2(c)
 where P1/P2 are the per-date land-cover distributions from pixel-text cosine
 similarity (DenseCLIP's score_map, without any trained FPN head).
 
-Two text modes:
-  - ensemble (zero-shot): full-sentence prompts, template-averaged text features
-  - context  (TPT):       [SOT] + learnable ctx + class + [EOT], ctx initialized
-                          from a hand-crafted template (TPT's ctx_init)
+Text features are zero-shot ensembles: full-sentence prompts, template-averaged.
 """
 import torch
 import torch.nn as nn
@@ -19,7 +16,7 @@ from zscd.vendor.tokenizer import tokenize, _tokenizer
 
 from .weights import load_checkpoint, split_towers
 from .clip_tower import DenseViT
-from .text_prompts import LAND_COVER_CLASSES, TEMPLATES, TPT_INIT_TEMPLATE
+from .text_prompts import LAND_COVER_CLASSES, TEMPLATES
 
 
 class TextTower(nn.Module):
@@ -68,15 +65,6 @@ class TextTower(nn.Module):
         eos = text_ids.argmax(dim=-1)
         return self._run(x, eos)
 
-    def forward_with_context(self, text_ids, context):
-        """text_ids: [K, N1]; context: [1, n_ctx, W]. Returns [K, D]."""
-        K, N1, W = self.token_embedding(text_ids).shape
-        n_ctx = context.shape[1]
-        x_text = self.token_embedding(text_ids)                       # K,N1,W
-        eos = (text_ids.argmax(dim=-1) + n_ctx)                       # shifted by insertion
-        x = torch.cat([x_text[:, 0:1], context.expand(K, -1, -1), x_text[:, 1:]], dim=1)
-        return self._run(x, eos)
-
 
 class SemanticChangeCLIP(nn.Module):
 
@@ -93,8 +81,9 @@ class SemanticChangeCLIP(nn.Module):
         self.text.load_pretrained(text_sd)
         self.logit_scale = min(float(logit_scale), 4.6052)            # exp <= 100
         # temperature for per-pixel posteriors: CLIP's 100x logit scale makes
-        # softmax near one-hot (change prob saturates); DenseCLIP's identity
-        # loss uses score_map/0.07 — we follow that calibration.
+        # softmax near one-hot (change prob saturates); DenseCLIP (Zhou et al.,
+        # ECCV 2022, arXiv:2112.01071)'s identity loss uses score_map/0.07 —
+        # we follow that calibration.
         self.tau = tau
 
         for p in self.parameters():
@@ -104,29 +93,12 @@ class SemanticChangeCLIP(nn.Module):
         self.device = device
 
         # --- prompts -------------------------------------------------------
-        texts, self.n1 = self._tokenize_classes(self.class_names)        # [K, N1]
-        self.register_buffer('texts', texts, persistent=False)
-        # learnable context (TPT), initialized from hand-crafted template
-        init = self._context_from_template(TPT_INIT_TEMPLATE)
-        self.contexts = nn.Parameter(init)                               # [1, n_ctx, W]
-        self._contexts_init = init.detach().clone()
-
-        # zero-shot ensemble text features (fixed, per-template averaged)
+        # zero-shot ensemble text features (fixed, per-template averaged);
+        # template-mean prompt ensembling follows Radford et al. 2021 (CLIP)
         self.register_buffer('ensemble_text_features',
                              self._build_ensemble_features(), persistent=False)
 
     # ---------------------------------------------------------------- prompts
-    def _tokenize_classes(self, names):
-        toks = [1 + len(_tokenizer.encode(n)) + 1 for n in names]
-        n1 = max(toks)
-        return tokenize(names, context_length=n1), n1
-
-    def _context_from_template(self, template):
-        toks = tokenize([template], context_length=77)[0]
-        eot = int((toks == 49407).nonzero()[0])
-        ids = toks[1:eot].to(self.text.token_embedding.weight.device)
-        return self.text.token_embedding(ids).detach().unsqueeze(0).clone()
-
     @torch.no_grad()
     def _build_ensemble_features(self):
         feats = []
@@ -138,17 +110,9 @@ class SemanticChangeCLIP(nn.Module):
             feats.append(F.normalize(f.float(), dim=-1))
         return F.normalize(torch.stack(feats).mean(0), dim=-1)          # [K, D]
 
-    def reset(self):
-        with torch.no_grad():
-            self.contexts.copy_(self._contexts_init)
-
-    def text_features(self, mode='ensemble', contexts=None):
-        """Returns normalized [K, D]; grad flows in 'context' mode."""
-        if mode == 'ensemble':
-            return self.ensemble_text_features
-        ctx = self.contexts if contexts is None else contexts
-        f = self.text.forward_with_context(self.texts, ctx)
-        return F.normalize(f.float(), dim=-1)
+    def text_features(self):
+        """Normalized template-averaged text features [K, D]."""
+        return self.ensemble_text_features
 
     # ---------------------------------------------------------------- forward
     @staticmethod
@@ -156,13 +120,13 @@ class SemanticChangeCLIP(nn.Module):
         fd = F.normalize(dense_feat.float(), dim=1)
         return scale * torch.einsum('bchw,kc->bkhw', fd, text_feat)
 
-    def forward(self, im1, im2, mode='ensemble'):
+    def forward(self, im1, im2):
         """im1/im2: [B,3,H,W] (H,W multiples of patch size, CLIP-normalized).
         Returns dict: logits1/logits2 [B,K,h,w], p1/p2 [B,K,h,w], change [B,h,w]."""
         with torch.no_grad():
             _, d1 = self.visual(im1)
             _, d2 = self.visual(im2)
-        tf = self.text_features(mode)
+        tf = self.text_features()
         scale = 1.0 / self.tau
         logits1 = self.class_logits(d1, tf, scale)
         logits2 = self.class_logits(d2, tf, scale)
@@ -180,3 +144,37 @@ class SemanticChangeCLIP(nn.Module):
         n1 = F.normalize(d1.float(), dim=1)
         n2 = F.normalize(d2.float(), dim=1)
         return (n1 * n2).sum(dim=1)                                      # [B,h,w]
+
+    @staticmethod
+    def absdiff_baseline(im1, im2, model, normalize=False):
+        """Supervised-style abs-difference as a relative L1 distance of the two
+        dates' dense features. The denominator self-normalizes the score into
+        [0,1] (triangle inequality) — required by the 256-bin histogram
+        protocol, which clips anything outside [0,1].
+        normalize=False: raw features — norm drift between dates counts as
+        change; True: per-pixel L2 normalization first, direction change only
+        (approximately monotone in the no-text cosine distance)."""
+        with torch.no_grad():
+            _, d1 = model.visual(im1)
+            _, d2 = model.visual(im2)
+        d1, d2 = d1.float(), d2.float()
+        if normalize:
+            d1 = F.normalize(d1, dim=1)
+            d2 = F.normalize(d2, dim=1)
+        diff = (d1 - d2).abs().sum(dim=1)                                # [B,h,w]
+        denom = d1.abs().sum(dim=1) + d2.abs().sum(dim=1)
+        return diff / denom.clamp_min(1e-6)                              # [0,1]
+
+
+def change_score(model, im1, im2, baseline='semantic'):
+    """Dispatch a zero-shot change score in [0,1], [B,h,w] — shared by the
+    sliding-window and resize inference paths."""
+    if baseline == 'semantic':
+        return model(im1, im2)['change'].float()
+    if baseline == 'notext':
+        sim = SemanticChangeCLIP.no_text_baseline(im1, im2, model)
+        return ((1.0 - sim) / 2.0).clamp(0, 1)
+    if baseline in ('absdiff_raw', 'absdiff_norm'):
+        return SemanticChangeCLIP.absdiff_baseline(
+            im1, im2, model, normalize=baseline == 'absdiff_norm')
+    raise ValueError(f'unknown baseline: {baseline}')

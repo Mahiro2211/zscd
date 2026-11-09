@@ -2,17 +2,14 @@
 """Pure-Python launcher for the full experiment suite (no shell scripts needed).
 
 24GB-GPU optimal configuration:
-  - zero-shot: sliding-window with all 16 windows per forward; the semantic and
-    no-text runs for the same weights share the GPU in parallel (~7GB total)
-  - TPT: original TPT setting of 64 augmented views (top-10% = 6 confident
-    views), chunk 32 visual forwards
+  - zero-shot: sliding-window with all 16 windows per forward; the four
+    baselines (semantic/notext/absdiff_raw/absdiff_norm) for the same weights
+    share the GPU in parallel (~14GB total)
   - finally: aggregate everything into results/report.md
 
 Usage (from anywhere):
-  python scripts/run_24g.py                # everything: 6 zero-shot + 3 TPT + report
-  python scripts/run_24g.py zeroshot       # only the 6 zero-shot runs
-  python scripts/run_24g.py tpt            # only the 3 TPT runs
-  python scripts/run_24g.py tpt --n-views 32       # lighter TPT variant
+  python scripts/run_24g.py                # everything: all zero-shot runs + report
+  python scripts/run_24g.py zeroshot       # only the zero-shot runs
   python scripts/run_24g.py report         # just regenerate report.md
   python scripts/run_24g.py zeroshot --limit-per-domain 10   # quick smoke run
 """
@@ -43,33 +40,23 @@ def launch(cmd, log_name):
                             stderr=subprocess.STDOUT), log
 
 
+BASELINES = ['semantic', 'notext', 'absdiff_raw', 'absdiff_norm']
+
+
 def run_zeroshot_all(common):
     for w in ['openai', 'remoteclip', 'georsclip']:
         base = [PY, '-m', 'zscd.run_zeroshot', '--weights', w,
                 '--inference', 'slide', '--stride', '112', '--batch-windows', '16'] + common
-        p1, l1 = launch(base + [], f'zs_{w}_semantic.log')
-        p2, l2 = launch(base + ['--baseline', 'notext'], f'zs_{w}_notext.log')
-        rc = p1.wait()
-        p2.wait()
-        l1.close()
-        l2.close()
-        status = 'OK' if rc == 0 and p2.returncode == 0 else \
-            f'FAILED (rc={rc},{p2.returncode}) — see results/logs/'
-        print(f'==== {w}: semantic + notext {status} ====', flush=True)
-        if rc != 0 or p2.returncode != 0:
-            sys.exit(1)
-
-
-def run_tpt_all(common):
-    for w in ['openai', 'remoteclip', 'georsclip']:
-        cmd = [PY, '-m', 'zscd.run_tpt', '--weights', w,
-               '--tta-steps', '1', '--lr', '5e-3',
-               '--chunk', '32', '--batch-windows', '16'] + common
-        p, l = launch(cmd, f'tpt_{w}.log')
-        rc = p.wait()
-        l.close()
-        print(f'==== TPT {w}: {"OK" if rc == 0 else "FAILED"} ====', flush=True)
-        if rc != 0:
+        procs = []
+        for b in BASELINES:
+            procs.append(launch(base + ['--baseline', b], f'zs_{w}_{b}.log'))
+        rcs = [p.wait() for p in procs]
+        for _, l in procs:
+            l.close()
+        status = 'OK' if all(rc == 0 for rc in rcs) else \
+            f'FAILED (rcs={rcs}) — see results/logs/'
+        print(f'==== {w}: {"+".join(BASELINES)} {status} ====', flush=True)
+        if any(rc != 0 for rc in rcs):
             sys.exit(1)
 
 
@@ -81,28 +68,20 @@ def make_report():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('stage', nargs='?', default='all',
-                    choices=['all', 'zeroshot', 'tpt', 'report'])
-    ap.add_argument('--n-views', type=int, default=64)
+                    choices=['all', 'zeroshot', 'report'])
     ap.add_argument('--limit-per-domain', type=int, default=0)
-    ap.add_argument('--sample-per-domain', type=int, default=0)
-    ap.add_argument('--calib-frac', type=float, default=0.05)
     args, passthrough = ap.parse_known_args()
 
     os.makedirs(LOG_DIR, exist_ok=True)
     common = []
     if args.limit_per_domain:
         common += ['--limit-per-domain', str(args.limit_per_domain)]
-    if args.sample_per_domain:
-        common += ['--sample-per-domain', str(args.sample_per_domain)]
-    common += ['--calib-frac', str(args.calib_frac)]
     # extra passthrough flags go to the zscd runners verbatim
     common += passthrough
 
     t0 = time.time()
     if args.stage in ('all', 'zeroshot'):
         run_zeroshot_all(common)
-    if args.stage in ('all', 'tpt'):
-        run_tpt_all(common + ['--n-views', str(args.n_views)])
     if args.stage in ('all', 'report'):
         make_report()
     print(f'total {time.time() - t0:.0f}s — logs in {LOG_DIR}')
