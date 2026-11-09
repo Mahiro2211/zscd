@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 """Pure-Python launcher for the full experiment suite (no shell scripts needed).
 
-24GB-GPU optimal configuration:
-  - zero-shot: sliding-window with all 16 windows per forward; the four
-    baselines (semantic/notext/absdiff_raw/absdiff_norm) for the same weights
-    share the GPU in parallel (~14GB total)
-  - finally: aggregate everything into results/report.md
+Default (e2e): end-to-end whole-tile inference — the native 512x512 tile goes
+through CLIP in ONE forward (pos-embed interpolated to the 36x36 grid), for
+the absdiff_norm baseline across all three weights. The original 4-baseline
+sliding-window suite is still available via --mode slide.
 
 Usage (from anywhere):
-  python scripts/run_24g.py                # everything: all zero-shot runs + report
-  python scripts/run_24g.py zeroshot       # only the zero-shot runs
-  python scripts/run_24g.py report         # just regenerate report.md
-  python scripts/run_24g.py zeroshot --limit-per-domain 10   # quick smoke run
+  python scripts/run_24g.py                                # e2e 512, absdiff_norm, all weights + report
+  python scripts/run_24g.py zeroshot                       # only the e2e runs
+  python scripts/run_24g.py zeroshot --limit-per-domain 10 # quick smoke run
+  python scripts/run_24g.py --mode slide                   # original 4-baseline sliding-window suite
+  python scripts/run_24g.py --baselines semantic,notext    # override the baseline set
+  python scripts/run_24g.py report                         # just regenerate report.md
 """
 import argparse
 import os
@@ -40,22 +41,31 @@ def launch(cmd, log_name):
                             stderr=subprocess.STDOUT), log
 
 
-BASELINES = ['semantic', 'notext', 'absdiff_raw', 'absdiff_norm']
+WEIGHTS = ['openai', 'remoteclip', 'georsclip']
 
 
-def run_zeroshot_all(common):
-    for w in ['openai', 'remoteclip', 'georsclip']:
-        base = [PY, '-m', 'zscd.run_zeroshot', '--weights', w,
-                '--inference', 'slide', '--stride', '112', '--batch-windows', '16'] + common
+def run_zeroshot_all(common, mode, baselines):
+    for w in WEIGHTS:
+        if mode == 'e2e':
+            base = [PY, '-m', 'zscd.run_zeroshot', '--weights', w,
+                    '--inference', 'resize', '--input-size', '512',
+                    '--batch', '4'] + common
+        else:
+            base = [PY, '-m', 'zscd.run_zeroshot', '--weights', w,
+                    '--inference', 'slide', '--stride', '112',
+                    '--batch-windows', '16'] + common
         procs = []
-        for b in BASELINES:
-            procs.append(launch(base + ['--baseline', b], f'zs_{w}_{b}.log'))
+        for b in baselines:
+            suffix = 'e2e512' if mode == 'e2e' else 'slide'
+            out = os.path.join('results', f'zs_{w}_{b}_{suffix}.json')
+            procs.append(launch(base + ['--baseline', b, '--out', out],
+                                f'zs_{w}_{b}_{mode}.log'))
         rcs = [p.wait() for p, _ in procs]
         for _, l in procs:
             l.close()
         status = 'OK' if all(rc == 0 for rc in rcs) else \
             f'FAILED (rcs={rcs}) — see results/logs/'
-        print(f'==== {w}: {"+".join(BASELINES)} {status} ====', flush=True)
+        print(f'==== {w}: {"+".join(baselines)} [{mode}] {status} ====', flush=True)
         if any(rc != 0 for rc in rcs):
             sys.exit(1)
 
@@ -69,6 +79,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('stage', nargs='?', default='all',
                     choices=['all', 'zeroshot', 'report'])
+    ap.add_argument('--mode', default='e2e', choices=['e2e', 'slide'],
+                    help='e2e = whole-tile native 512 in one forward (default); '
+                         'slide = original 4-baseline sliding-window suite')
+    ap.add_argument('--baselines', default='absdiff_norm',
+                    help='comma-separated subset of semantic,notext,absdiff_raw,absdiff_norm')
     ap.add_argument('--limit-per-domain', type=int, default=0)
     args, passthrough = ap.parse_known_args()
 
@@ -81,7 +96,8 @@ def main():
 
     t0 = time.time()
     if args.stage in ('all', 'zeroshot'):
-        run_zeroshot_all(common)
+        run_zeroshot_all(common, args.mode,
+                         [b.strip() for b in args.baselines.split(',') if b.strip()])
     if args.stage in ('all', 'report'):
         make_report()
     print(f'total {time.time() - t0:.0f}s — logs in {LOG_DIR}')
