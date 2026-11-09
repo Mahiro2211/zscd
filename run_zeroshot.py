@@ -31,6 +31,7 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 from zscd.models.cd_model import SemanticChangeCLIP, change_score
+from zscd.models.dino_tower import DenseChangeDINO, DINO_MODELS
 from zscd.paths import RESULTS_DIR, DATA_ROOT
 from zscd.data.cd_dataset import PairedChangeDataset, clip_denormalize
 from zscd.inference import slide_change_prob
@@ -63,7 +64,8 @@ def save_vis(path, im1, im2, label, prob, thr=0.5):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--weights', required=True, choices=['openai', 'remoteclip', 'georsclip'])
+    ap.add_argument('--weights', required=True,
+                    choices=['openai', 'remoteclip', 'georsclip'] + list(DINO_MODELS))
     ap.add_argument('--data-root', default=DATA_ROOT)
     ap.add_argument('--input-size', type=int, default=224, help='CLIP window size')
     ap.add_argument('--stride', type=int, default=112)
@@ -79,13 +81,21 @@ def main():
     ap.add_argument('--out', default='')
     args = ap.parse_args()
 
+    # DINOv2 has no text tower: only the feature-difference tracks are valid
+    if args.weights in DINO_MODELS and args.baseline == 'semantic':
+        ap.error(f'--weights {args.weights} has no text tower; choose '
+                 f'notext / absdiff_raw / absdiff_norm')
+
     device = 'cuda'
     domains = args.domains.split(',')
     ds = PairedChangeDataset(args.data_root, domains, args.limit_per_domain)
     items = sorted(ds.items)
     print(f'pairs: {len(ds)}; inference={args.inference}, baseline={args.baseline}')
 
-    model = SemanticChangeCLIP(args.weights).to(device).eval()
+    if args.weights in DINO_MODELS:
+        model = DenseChangeDINO(args.weights).to(device).eval()
+    else:
+        model = SemanticChangeCLIP(args.weights).to(device).eval()
 
     acc = HistAccumulator(domains)
     vis_saved = {d: 0 for d in domains}

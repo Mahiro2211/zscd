@@ -41,6 +41,7 @@ if PROJ_ROOT not in sys.path:
 from zscd.paths import RESULTS_DIR, DATA_ROOT
 from zscd.data.cd_dataset import PairedChangeDataset
 from zscd.models.cd_model import SemanticChangeCLIP
+from zscd.models.dino_tower import DenseChangeDINO, DINO_MODELS
 from zscd.inference import slide_change_prob
 from zscd.eval.metrics import HistAccumulator
 from zscd.run_zeroshot import save_vis
@@ -121,7 +122,8 @@ def tile_prob(model, ds, dom, name, args):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--weights', required=True, choices=['openai', 'remoteclip', 'georsclip'])
+    ap.add_argument('--weights', required=True,
+                    choices=['openai', 'remoteclip', 'georsclip'] + list(DINO_MODELS))
     ap.add_argument('--baseline', default='semantic',
                     choices=['semantic', 'notext', 'absdiff_raw', 'absdiff_norm'])
     ap.add_argument('--data-root', default=DATA_ROOT)
@@ -139,6 +141,9 @@ def main():
     ap.add_argument('--domains', default='levir,second,cnam,dsifn,clcd')
     ap.add_argument('--limit-per-domain', type=int, default=0)
     args = ap.parse_args()
+    if args.weights in DINO_MODELS and args.baseline == 'semantic':
+        ap.error(f'--weights {args.weights} has no text tower; choose '
+                 f'notext / absdiff_raw / absdiff_norm')
     args.win = args.input_size
 
     domains = args.domains.split(',')
@@ -154,7 +159,10 @@ def main():
     print(f'{tag}: {len(items)} sampled pairs '
           f'(sample_frac={args.sample_frac}, seed={args.sample_seed})')
 
-    model = SemanticChangeCLIP(args.weights).to('cuda').eval()
+    if args.weights in DINO_MODELS:
+        model = DenseChangeDINO(args.weights).to('cuda').eval()
+    else:
+        model = SemanticChangeCLIP(args.weights).to('cuda').eval()
 
     # ---- single pass: per-tile records at the fixed 0.5 threshold ---------
     thr = 0.5

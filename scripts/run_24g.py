@@ -41,11 +41,16 @@ def launch(cmd, log_name):
                             stderr=subprocess.STDOUT), log
 
 
-WEIGHTS = ['openai', 'remoteclip', 'georsclip']
+WEIGHTS = ['openai', 'remoteclip', 'georsclip', 'dinov2-reg', 'dinov2']
+DINO_WEIGHTS = {'dinov2-reg', 'dinov2'}   # no text tower: semantic track invalid
 
 
 def run_zeroshot_all(common, mode, baselines):
     for w in WEIGHTS:
+        bl = [b for b in baselines if not (w in DINO_WEIGHTS and b == 'semantic')]
+        if not bl:
+            print(f'==== {w}: no valid baselines for this weight, skipped ====', flush=True)
+            continue
         if mode == 'e2e':
             base = [PY, '-m', 'zscd.run_zeroshot', '--weights', w,
                     '--inference', 'resize', '--input-size', '512',
@@ -55,7 +60,7 @@ def run_zeroshot_all(common, mode, baselines):
                     '--inference', 'slide', '--stride', '112',
                     '--batch-windows', '16'] + common
         procs = []
-        for b in baselines:
+        for b in bl:
             suffix = 'e2e512' if mode == 'e2e' else 'slide'
             out = os.path.join('results', f'zs_{w}_{b}_{suffix}.json')
             procs.append(launch(base + ['--baseline', b, '--out', out],
@@ -65,7 +70,7 @@ def run_zeroshot_all(common, mode, baselines):
             l.close()
         status = 'OK' if all(rc == 0 for rc in rcs) else \
             f'FAILED (rcs={rcs}) — see results/logs/'
-        print(f'==== {w}: {"+".join(baselines)} [{mode}] {status} ====', flush=True)
+        print(f'==== {w}: {"+".join(bl)} [{mode}] {status} ====', flush=True)
         if any(rc != 0 for rc in rcs):
             sys.exit(1)
 
@@ -83,7 +88,8 @@ def main():
                     help='e2e = whole-tile native 512 in one forward (default); '
                          'slide = original 4-baseline sliding-window suite')
     ap.add_argument('--baselines', default='absdiff_norm',
-                    help='comma-separated subset of semantic,notext,absdiff_raw,absdiff_norm')
+                    help='comma-separated subset of semantic,notext,absdiff_raw,absdiff_norm '
+                         '(semantic is auto-skipped for dinov2* weights: no text tower)')
     ap.add_argument('--limit-per-domain', type=int, default=0)
     args, passthrough = ap.parse_known_args()
 
