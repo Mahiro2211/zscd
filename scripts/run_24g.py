@@ -50,7 +50,7 @@ def run_zeroshot_all(common):
         procs = []
         for b in BASELINES:
             procs.append(launch(base + ['--baseline', b], f'zs_{w}_{b}.log'))
-        rcs = [p.wait() for p in procs]
+        rcs = [p.wait() for p, _ in procs]
         for _, l in procs:
             l.close()
         status = 'OK' if all(rc == 0 for rc in rcs) else \
