@@ -58,6 +58,7 @@ if __name__ == '__main__':
         dl_openai()
     else:
         job = JOBS[which]
+        os.makedirs(CKPT_DIR, exist_ok=True)   # fresh clones have no checkpoints/
         p = hf_hub_download(job['repo'], job['fn'], cache_dir=os.path.join(CKPT_DIR, 'hf_cache'))
         shutil.copy(p, job['dst'])
         print(which, 'OK ->', job['dst'])

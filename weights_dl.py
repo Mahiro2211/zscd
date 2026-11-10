@@ -30,6 +30,9 @@ SATDINO_URLS = [
 
 
 def dl_url(url, dst):
+    # fresh clones have no checkpoints/ (gitignored) — curl exits 23 (write
+    # error) without it
+    os.makedirs(os.path.dirname(dst) or '.', exist_ok=True)
     # -L: hf-mirror 302-redirects to the CDN; without it the HEAD content-length
     # is the redirect page's (~1KB), not the file's, and the size check misfires
     head = subprocess.run(['curl', '-4', '-sIL', '--max-time', '15', url],
@@ -66,16 +69,26 @@ def dl_hf(timm_name):
 
 
 def ensure_timm_ckpt(dst, timm_name):
-    """Make dst exist: ModelScope first, huggingface.co timm-hub fallback."""
+    """Make dst exist: ModelScope -> hf-mirror -> huggingface.co timm-hub."""
     if os.path.exists(dst) and os.path.getsize(dst) > 1e8:
         return
     try:
         dl_url(MS_URL.format(name=timm_name), dst)
         print(f'[weights_dl] {timm_name} via ModelScope -> {dst}')
+        return
     except Exception as e:
         print(f'[weights_dl] ModelScope failed ({type(e).__name__}: {e}); '
+              f'trying hf-mirror')
+    try:
+        # plain curl follows hf-mirror's 302 fine — only huggingface_hub's
+        # HEAD metadata check chokes on it
+        dl_url(f'https://hf-mirror.com/timm/{timm_name}/resolve/main/model.safetensors', dst)
+        print(f'[weights_dl] {timm_name} via hf-mirror -> {dst}')
+        return
+    except Exception as e:
+        print(f'[weights_dl] hf-mirror failed ({type(e).__name__}: {e}); '
               f'falling back to huggingface.co timm-hub')
-        dl_hf(timm_name)
+    dl_hf(timm_name)
 
 
 def ensure_satdino_ckpt(dst):
